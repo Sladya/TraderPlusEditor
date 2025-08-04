@@ -6,6 +6,9 @@ on:
       - 'v*'  # Запускается при создании тега v1.0.0, v1.1.0 и т.д.
   workflow_dispatch:  # Позволяет запускать вручную
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: windows-latest
@@ -35,5 +38,4 @@ jobs:
         draft: false
         prerelease: false
         generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        token: ${{ secrets.GITHUB_TOKEN }} 
