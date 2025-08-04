@@ -459,6 +459,22 @@ class TraderPlusEditor(QMainWindow):
         
         buttons_layout.addStretch()
         
+        # Кнопка "О программе"
+        about_button = QPushButton("О программе")
+        about_button.clicked.connect(self.show_about_dialog)
+        about_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #3498db;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #21618c;
+            }
+        """)
+        buttons_layout.addWidget(about_button)
+        
         return buttons_layout
         
     def unload_file(self):
@@ -1113,6 +1129,44 @@ class TraderPlusEditor(QMainWindow):
                 self.status_bar.showMessage(f"Автосохранение: {os.path.basename(self.current_file)}")
             except Exception as e:
                 QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл: {str(e)}")
+                
+    def show_about_dialog(self):
+        """Показать диалог 'О программе'"""
+        about_text = """
+        <div style="text-align: center; padding: 20px;">
+            <h2 style="color: #2c3e50; margin-bottom: 15px;">TraderPlusEditor</h2>
+            <p style="font-size: 14px; color: #34495e; margin-bottom: 10px;">
+                <strong>Версия:</strong> 1.0.4
+            </p>
+            <p style="font-size: 14px; color: #34495e; margin-bottom: 10px;">
+                <strong>Описание:</strong> Редактор конфигураций для мода TraderPlus в DayZ
+            </p>
+            <p style="font-size: 14px; color: #27ae60; margin-bottom: 10px; font-weight: bold;">
+                <strong>Программа распространяется бесплатно</strong>
+            </p>
+            <hr style="border: 1px solid #bdc3c7; margin: 15px 0;">
+            <p style="font-size: 14px; color: #34495e; margin-bottom: 10px;">
+                <strong>Автор:</strong> Sladya
+            </p>
+            <p style="font-size: 14px; color: #34495e; margin-bottom: 10px;">
+                <strong>Связь в :</strong> 
+                <a href="https://discord.gg/jdaxza27Db" style="color: #3498db; text-decoration: none;">
+                    Discord
+                </a>
+            </p>
+            <p style="font-size: 14px; color: #34495e; margin-bottom: 15px;">
+                <strong>GitHub:</strong> 
+                <a href="https://github.com/Sladya/TraderPlusEditor" style="color: #3498db; text-decoration: none;">
+                    Репозиторий проекта
+                </a>
+            </p>
+            <p style="font-size: 12px; color: #7f8c8d; margin-top: 20px;">
+                © 2025 TraderPlusEditor. Все права защищены.
+            </p>
+        </div>
+        """
+        
+        QMessageBox.about(self, "О программе", about_text)
 
 
 class ProductWindow(QDialog):
