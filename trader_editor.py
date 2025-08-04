@@ -1136,7 +1136,7 @@ class TraderPlusEditor(QMainWindow):
         <div style="text-align: center; padding: 20px;">
             <h2 style="color: #2c3e50; margin-bottom: 15px;">TraderPlusEditor</h2>
             <p style="font-size: 14px; color: #34495e; margin-bottom: 10px;">
-                <strong>Версия:</strong> 1.0.4
+                <strong>Версия:</strong> 1.0.0
             </p>
             <p style="font-size: 14px; color: #34495e; margin-bottom: 10px;">
                 <strong>Описание:</strong> Редактор конфигураций для мода TraderPlus в DayZ
