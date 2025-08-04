@@ -1,370 +1,1340 @@
-import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, simpledialog
+import sys
 import json
 import os
 from typing import Dict, List, Any
-import tkinterdnd2 as tkdnd
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                             QHBoxLayout, QLabel, QLineEdit, QCheckBox, QPushButton,
+                             QTreeWidget, QTreeWidgetItem, QMenuBar, QStatusBar,
+                             QFileDialog, QMessageBox, QInputDialog, QDialog,
+                             QFormLayout, QHeaderView, QMenu,
+                             QAction, QProgressBar, QSplitter, QTextEdit, QSizePolicy)
+from PyQt5.QtCore import Qt, QThread, pyqtSignal, QTimer, QSettings
+from PyQt5.QtGui import QFont, QIcon, QPalette, QColor, QKeySequence, QPixmap
 
-class TraderPlusEditor:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("TraderPlusEditor [PERIMETER]")
-        self.root.geometry("800x600")
-        
-        # Настройка drag and drop
-        self.root.drop_target_register(tkdnd.DND_FILES)
-        self.root.dnd_bind('<<Drop>>', self.on_drop)
+class TraderPlusEditor(QMainWindow):
+    def __init__(self):
+        super().__init__()
         
         # Данные
         self.config_data = {}
         self.current_file = ""
+        self.file_type = "price"  # "price" или "general"
+        
+        # Настройка окна
+        self.setWindowTitle("TraderPlusEditor")
+        self.setGeometry(100, 100, 1000, 800)
+        
+        # Установка иконки окна
+        try:
+            # Пробуем загрузить иконку из файла
+            icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+                print(f"Иконка загружена: {icon_path}")
+            else:
+                # Если файл не найден, создаем простую иконку
+                print(f"Файл иконки не найден: {icon_path}")
+                # Создаем простую иконку
+                pixmap = QPixmap(32, 32)
+                pixmap.fill(QColor(52, 152, 219))  # Синий цвет
+                self.setWindowIcon(QIcon(pixmap))
+        except Exception as e:
+            print(f"Ошибка загрузки иконки: {e}")
+            # Создаем простую иконку в случае ошибки
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(QColor(52, 152, 219))
+            self.setWindowIcon(QIcon(pixmap))
+        
+        # Установка минимального размера
+        self.setMinimumSize(1100, 800)
+        
+        # Настройка стилей приложения
+        self.setup_application_style()
         
         # Создание интерфейса
-        self.create_widgets()
+        self.create_interface()
+        self.setup_drag_drop()
         
-    def create_widgets(self):
-        # Главное меню
-        menubar = tk.Menu(self.root)
-        self.root.config(menu=menubar)
+    def setup_application_style(self):
+        """Настройка стилей всего приложения"""
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #f5f5f5;
+            }
+            
+            QLabel {
+                font-size: 13px;
+                color: #333;
+            }
+            
+            QLineEdit {
+                font-size: 13px;
+                padding: 8px 12px;
+                border: 2px solid #ddd;
+                border-radius: 6px;
+                background-color: white;
+            }
+            
+            QLineEdit:focus {
+                border-color: #4CAF50;
+                outline: none;
+            }
+            
+            QPushButton {
+                font-size: 13px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                background-color: #4CAF50;
+                color: white;
+                min-width: 100px;
+            }
+            
+            QPushButton:hover {
+                background-color: #45a049;
+            }
+            
+            QPushButton:pressed {
+                background-color: #3d8b40;
+            }
+            
+            QTreeWidget {
+                font-size: 13px;
+                border: 1px solid #ddd;
+                border-radius: 6px;
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                selection-background-color: #e3f2fd;
+            }
+            
+            QTreeWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #eeeeee;
+            }
+            
+            QTreeWidget::item:selected {
+                background-color: #2196F3;
+                color: white;
+            }
+            
+            QTreeWidget::item:hover {
+                background-color: #e8f4f8;
+            }
+            
+            QHeaderView::section {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 12px;
+                border: none;
+                border-right: 1px solid #ddd;
+                border-bottom: 2px solid #4CAF50;
+                background-color: #fafafa;
+            }
+            
+            QStatusBar {
+                font-size: 12px;
+                background-color: #eeeeee;
+                border-top: 1px solid #ddd;
+                padding: 5px;
+            }
+            
+
+        """)
         
-        file_menu = tk.Menu(menubar, tearoff=0)
-        menubar.add_cascade(label="Файл", menu=file_menu)
-        file_menu.add_command(label="Открыть", command=self.open_file)
-        file_menu.add_command(label="Сохранить", command=self.save_file)
-        file_menu.add_command(label="Сохранить как", command=self.save_file_as)
-        file_menu.add_separator()
-        file_menu.add_command(label="Выход", command=self.root.quit)
+    def create_interface(self):
+        """Создание основного интерфейса"""
         
-        # Основной фрейм
-        main_frame = ttk.Frame(self.root)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Информация о файле (создаем заранее)
+        self.file_info_label = QLabel("📄 Файл не загружен")
+        self.file_info_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #7f8c8d;
+                background-color: #ecf0f1;
+                padding: 8px 15px;
+                border-radius: 6px;
+                border: 1px solid #bdc3c7;
+            }
+        """)
         
-        # Заголовок
-        header_frame = ttk.Frame(main_frame)
-        header_frame.pack(fill=tk.X, pady=(0, 10))
+        # Центральный виджет
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
         
-        ttk.Label(header_frame, text="Категории товаров", font=("Arial", 14, "bold")).pack(side=tk.LEFT)
+        # Основной layout с отступами
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 15, 20, 15)  # Отступы от краев
+        main_layout.setSpacing(15)  # Расстояние между элементами
         
-        # Поиск по категориям
-        search_frame = ttk.Frame(header_frame)
-        search_frame.pack(side=tk.LEFT, padx=(20, 0))
+        # Заголовок и поиск
+        header_layout = self.create_header_section()
+        main_layout.addLayout(header_layout)
         
-        ttk.Label(search_frame, text="Поиск:").pack(side=tk.LEFT, padx=(0, 5))
-        self.search_var = tk.StringVar()
-        self.search_var.trace("w", self.on_search_change)
-        self.search_entry = ttk.Entry(search_frame, textvariable=self.search_var, width=25)
-        self.search_entry.pack(side=tk.LEFT, padx=(0, 5))
+        # Создаем контейнер для таблицы и подсказки
+        self.content_container = QWidget()
+        content_layout = QVBoxLayout(self.content_container)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(10)
         
-        ttk.Button(search_frame, text="Очистить", command=self.clear_search).pack(side=tk.LEFT)
+        # Таблица категорий
+        self.create_category_table()
+        content_layout.addWidget(self.category_table)
         
-        # Информация о файле
-        self.file_info_var = tk.StringVar()
-        self.file_info_var.set("Файл не загружен")
-        ttk.Label(header_frame, textvariable=self.file_info_var, foreground="gray").pack(side=tk.RIGHT)
+        # Подсказка о перетаскивании (изначально скрыта)
+        self.drag_hint_label = QLabel()
+        self.drag_hint_label.setAlignment(Qt.AlignCenter)
+        self.drag_hint_label.setWordWrap(True)
+        self.drag_hint_label.setMinimumHeight(150)
+        self.drag_hint_label.setMaximumHeight(200)
+        self.drag_hint_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.drag_hint_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                color: #3498db;
+                background-color: #f8f9fa;
+                padding: 40px 30px;
+                border: 3px dashed #3498db;
+                border-radius: 15px;
+                margin: 10px;
+                font-weight: bold;
+            }
+        """)
+        self.drag_hint_label.setText("📁 Перетащите файл конфигурации TraderPlus сюда\n\n"
+                                   "Поддерживаемые файлы:\n\n"
+                                   "TraderPlusPriceConfig.json\n"
+                                   "TraderPlusGeneralConfig.json\n"
+                                   "TraderPlusIDsConfig.json")
+        content_layout.addWidget(self.drag_hint_label)
         
-        # Список категорий
-        list_frame = ttk.Frame(main_frame)
-        list_frame.pack(fill=tk.BOTH, expand=True)
-        
-        # Создаем Treeview для отображения категорий
-        columns = ("Название", "Количество товаров")
-        self.category_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=20)
-        
-        # Настройка колонок
-        self.category_tree.heading("Название", text="Название категории")
-        self.category_tree.heading("Количество товаров", text="Количество товаров")
-        self.category_tree.column("Название", width=400, anchor=tk.W)
-        self.category_tree.column("Количество товаров", width=150, anchor=tk.CENTER)
-        
-        # Привязываем двойной клик
-        self.category_tree.bind("<Double-1>", self.on_category_double_click)
-        
-        # Скроллбары
-        v_scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.category_tree.yview)
-        h_scrollbar = ttk.Scrollbar(list_frame, orient=tk.HORIZONTAL, command=self.category_tree.xview)
-        self.category_tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-        
-        # Размещение элементов
-        self.category_tree.grid(row=0, column=0, sticky="nsew")
-        v_scrollbar.grid(row=0, column=1, sticky="ns")
-        h_scrollbar.grid(row=1, column=0, sticky="ew")
-        
-        list_frame.grid_rowconfigure(0, weight=1)
-        list_frame.grid_columnconfigure(0, weight=1)
+        main_layout.addWidget(self.content_container)
         
         # Кнопки управления
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
+        buttons_layout = self.create_buttons_section()
+        main_layout.addLayout(buttons_layout)
         
-        ttk.Button(button_frame, text="Добавить категорию", command=self.add_category).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="Удалить категорию", command=self.delete_category).pack(side=tk.LEFT, padx=(0, 5))
-        ttk.Button(button_frame, text="Обновить список", command=self.refresh_categories).pack(side=tk.LEFT, padx=(0, 5))
+        # Статусная строка
+        self.status_bar = QStatusBar()
+        self.setStatusBar(self.status_bar)
+        self.status_bar.setStyleSheet("""
+            QStatusBar {
+                font-size: 13px;
+                background-color: #34495e;
+                color: white;
+                border-top: 2px solid #3498db;
+                padding: 8px;
+                font-weight: bold;
+            }
+        """)
+        self.status_bar.showMessage("🚀 Готов к работе")
         
-        # Статус
-        self.status_var = tk.StringVar()
-        self.status_var.set("Готов к работе")
-        status_label = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_label.pack(side=tk.BOTTOM, fill=tk.X)
+        # Показываем подсказку при запуске
+        self.show_drag_drop_hint()
         
-    def on_drop(self, event):
-        """Обработчик перетаскивания файлов"""
-        file_path = event.data
+
+    def create_header_section(self):
+        """Создание секции заголовка и поиска"""
+        header_layout = QHBoxLayout()
         
-        # Убираем фигурные скобки, если они есть (Windows)
-        if file_path.startswith('{') and file_path.endswith('}'):
-            file_path = file_path[1:-1]
+        # Поиск
+        search_label = QLabel("🔍 Поиск:")
+        search_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #34495e;
+                margin-right: 5px;
+            }
+        """)
+        header_layout.addWidget(search_label)
         
-        # Проверяем, что это JSON файл
-        if file_path.lower().endswith('.json'):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    self.config_data = json.load(f)
-                self.current_file = file_path
-                self.load_categories()
-                self.file_info_var.set(f"Файл: {os.path.basename(file_path)}")
-                self.status_var.set(f"Файл загружен: {os.path.basename(file_path)}")
-                self.auto_save()  # Сохраняем сразу после загрузки для создания резервной копии
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось открыть файл: {str(e)}")
+        self.search_entry = QLineEdit()
+        self.search_entry.setMinimumWidth(300)
+        self.search_entry.setMaximumWidth(400)
+        self.search_entry.setPlaceholderText("Введите текст для поиска категорий и товаров...")
+        self.search_entry.textChanged.connect(self.on_search_change)
+        self.search_entry.setStyleSheet("""
+            QLineEdit {
+                font-size: 14px;
+                padding: 12px 16px;
+                border: 2px solid #bdc3c7;
+                border-radius: 8px;
+                background-color: white;
+            }
+            
+            QLineEdit:focus {
+                border-color: #3498db;
+                box-shadow: 0 0 5px rgba(52, 152, 219, 0.3);
+            }
+        """)
+        header_layout.addWidget(self.search_entry)
+        
+        # Кнопка очистки
+        clear_button = QPushButton("🗑️ Очистить")
+        clear_button.clicked.connect(self.clear_search)
+        clear_button.setStyleSheet("""
+            QPushButton {
+                font-size: 13px;
+                font-weight: bold;
+                padding: 12px 20px;
+                border: none;
+                border-radius: 8px;
+                background-color: #e74c3c;
+                color: white;
+                margin-left: 10px;
+            }
+            
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+            
+            QPushButton:pressed {
+                background-color: #a93226;
+            }
+        """)
+        header_layout.addWidget(clear_button)
+        
+        header_layout.addStretch()
+        
+        # Информация о файле
+        header_layout.addWidget(self.file_info_label)
+        
+        return header_layout
+        
+    def create_category_table(self):
+        """Создание таблицы категорий"""
+        self.category_table = QTreeWidget()
+        self.category_table.setHeaderLabels(["📂 Название категории", "📊 Информация о товарах"])
+        
+        # Настройка колонок
+        header = self.category_table.header()
+        header.setSectionResizeMode(0, QHeaderView.Interactive)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        
+        # Установка минимальных размеров колонок
+        self.category_table.setColumnWidth(0, 500)
+        
+        # Настройка внешнего вида
+        self.category_table.setAlternatingRowColors(True)
+        self.category_table.setRootIsDecorated(False)
+        self.category_table.setSelectionBehavior(QTreeWidget.SelectRows)
+        
+        # Увеличиваем высоту строк
+        self.category_table.setStyleSheet("""
+            QTreeWidget {
+                font-size: 14px;
+                border: 2px solid #bdc3c7;
+                border-radius: 8px;
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                selection-background-color: #3498db;
+                gridline-color: #ecf0f1;
+            }
+            
+            QTreeWidget::item {
+                padding: 12px 8px;
+                border-bottom: 1px solid #ecf0f1;
+                font-size: 14px;
+            }
+            
+            QTreeWidget::item:selected {
+                background-color: #3498db;
+                color: white;
+                font-weight: bold;
+            }
+            
+            QTreeWidget::item:hover {
+                background-color: #e8f4f8;
+                color: #2c3e50;
+            }
+            
+            QHeaderView::section {
+                font-size: 15px;
+                font-weight: bold;
+                padding: 15px 10px;
+                border: none;
+                border-right: 1px solid #bdc3c7;
+                border-bottom: 3px solid #3498db;
+                background-color: #ecf0f1;
+                color: #2c3e50;
+            }
+            
+            QHeaderView::section:hover {
+                background-color: #d5dbdb;
+            }
+        """)
+        
+        # Подключение событий
+        self.category_table.itemDoubleClicked.connect(self.on_category_double_click)
+        
+    def show_drag_drop_hint(self):
+        """Показать подсказку о перетаскивании файлов"""
+        # Скрываем таблицу и показываем подсказку на всё пространство
+        self.category_table.hide()
+        self.drag_hint_label.show()
+        
+        # Убираем ограничения по высоте для подсказки
+        self.drag_hint_label.setMinimumHeight(600)
+        self.drag_hint_label.setMaximumHeight(16777215)  # Максимальное значение
+        
+    def create_buttons_section(self):
+        """Создание секции кнопок"""
+        buttons_layout = QHBoxLayout()
+        
+        # Стиль для кнопок
+        button_style = """
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 15px 25px;
+                border: none;
+                border-radius: 8px;
+                color: white;
+                margin: 5px;
+                min-width: 150px;
+            }
+        """
+        
+        self.add_button = QPushButton("➕ Добавить категорию")
+        self.add_button.clicked.connect(self.add_category)
+        self.add_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #27ae60;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+            QPushButton:pressed {
+                background-color: #1e8449;
+            }
+        """)
+        buttons_layout.addWidget(self.add_button)
+        
+        self.delete_button = QPushButton("🗑️ Удалить категорию")
+        self.delete_button.clicked.connect(self.delete_category)
+        self.delete_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #e74c3c;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton:pressed {
+                background-color: #a93226;
+            }
+        """)
+        buttons_layout.addWidget(self.delete_button)
+        
+        # Кнопка сохранить
+        save_button = QPushButton("Сохранить")
+        save_button.clicked.connect(self.save_file)
+        save_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #f39c12;
+            }
+            QPushButton:hover {
+                background-color: #e67e22;
+            }
+            QPushButton:pressed {
+                background-color: #d35400;
+            }
+        """)
+        buttons_layout.addWidget(save_button)
+        
+        # Кнопка выгрузить файл
+        unload_button = QPushButton("Закрыть файл")
+        unload_button.clicked.connect(self.unload_file)
+        unload_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #9b59b6;
+            }
+            QPushButton:hover {
+                background-color: #8e44ad;
+            }
+            QPushButton:pressed {
+                background-color: #7d3c98;
+            }
+        """)
+        buttons_layout.addWidget(unload_button)
+        
+        buttons_layout.addStretch()
+        
+        return buttons_layout
+        
+    def unload_file(self):
+        """Выгрузка текущего файла"""
+        if not self.config_data:
+            QMessageBox.information(self, "Информация", "Файл не загружен")
+            return
+            
+        # Очищаем данные
+        self.config_data = {}
+        self.current_file = ""
+        self.file_type = "price"
+        
+        # Очищаем поиск
+        self.search_entry.clear()
+        
+        # Показываем подсказку и скрываем таблицу
+        self.show_drag_drop_hint()
+        
+        # Обновляем информацию о файле
+        self.file_info_label.setText("📄 Файл не загружен")
+        self.file_info_label.setStyleSheet("""
+            QLabel {
+                font-size: 13px;
+                color: #7f8c8d;
+                background-color: #ecf0f1;
+                padding: 8px 15px;
+                border-radius: 6px;
+                border: 1px solid #bdc3c7;
+            }
+        """)
+        
+        # Обновляем заголовки кнопок
+        self.update_button_labels()
+        
+        # Обновляем статус
+        self.status_bar.showMessage("🚀 Готов к работе")
+        
+    def setup_drag_drop(self):
+        """Настройка drag and drop"""
+        self.setAcceptDrops(True)
+        
+    def dragEnterEvent(self, event):
+        """Обработка входа перетаскиваемого файла"""
+        if event.mimeData().hasUrls():
+            event.accept()
         else:
-            messagebox.showwarning("Предупреждение", "Поддерживаются только JSON файлы")
-    
+            event.ignore()
+            
+    def dropEvent(self, event):
+        """Обработка сброса файла"""
+        files = [u.toLocalFile() for u in event.mimeData().urls()]
+        if files and files[0].lower().endswith('.json'):
+            self.load_file(files[0])
+        else:
+            QMessageBox.warning(self, "Предупреждение", "Поддерживаются только JSON файлы")
+            
+    def load_file(self, filename):
+        """Загрузка файла конфигурации"""
+        try:
+            with open(filename, 'r', encoding='utf-8') as f:
+                self.config_data = json.load(f)
+            self.current_file = filename
+            
+            # Определяем тип файла
+            self.detect_file_type()
+            
+            # Скрываем подсказку и показываем таблицу
+            self.drag_hint_label.hide()
+            self.category_table.show()
+            
+            # Восстанавливаем нормальный размер подсказки
+            self.drag_hint_label.setMinimumHeight(150)
+            self.drag_hint_label.setMaximumHeight(200)
+            
+            # Очищаем таблицу перед загрузкой новых данных
+            self.category_table.clear()
+            
+            # Загружаем данные в зависимости от типа
+            if self.file_type == "price":
+                self.filter_categories()
+            elif self.file_type == "general":
+                self.filter_traders()
+            else:
+                self.filter_ids()
+                
+            # Обновляем заголовки кнопок
+            self.update_button_labels()
+                
+            self.file_info_label.setText(f"📄 {os.path.basename(filename)}")
+            self.file_info_label.setStyleSheet("""
+                QLabel {
+                    font-size: 13px;
+                    color: #27ae60;
+                    background-color: #d5f4e6;
+                    padding: 8px 15px;
+                    border-radius: 6px;
+                    border: 1px solid #27ae60;
+                    font-weight: bold;
+                }
+            """)
+            self.status_bar.showMessage(f"✅ Файл успешно загружен: {os.path.basename(filename)}")
+            self.auto_save()
+        except Exception as e:
+            QMessageBox.critical(self, "Ошибка", f"Не удалось открыть файл: {str(e)}")
+            
+    def detect_file_type(self):
+        """Определение типа файла конфигурации"""
+        if 'TraderCategories' in self.config_data:
+            self.file_type = "price"
+        elif 'Traders' in self.config_data:
+            self.file_type = "general"
+        elif 'IDs' in self.config_data:
+            self.file_type = "ids"
+        else:
+            self.file_type = "unknown"
+            
+
+            
+    def update_button_labels(self):
+        """Обновление заголовков кнопок в зависимости от типа файла"""
+        if self.file_type == "price":
+            self.add_button.setText("➕ Добавить категорию")
+            self.delete_button.setText("🗑️ Удалить категорию")
+        elif self.file_type == "general":
+            self.add_button.setText("➕ Добавить торговца")
+            self.delete_button.setText("🗑️ Удалить торговца")
+        else:
+            self.add_button.setText("➕ Добавить ID торговца")
+            self.delete_button.setText("🗑️ Удалить ID торговца")
+            
+
+                
+    def filter_categories(self):
+        """Фильтрация категорий по поисковому запросу"""
+        search_text = self.search_entry.text().lower().strip()
+        
+        self.category_table.clear()
+        
+        if 'TraderCategories' in self.config_data:
+            display_index = 0
+            for category in self.config_data['TraderCategories']:
+                category_name = category['CategoryName']
+                product_count = len(category['Products'])
+                show_category = False
+                found_in_products = False
+                
+                # Если поиск пустой, показываем все
+                if not search_text:
+                    show_category = True
+                else:
+                    # Поиск в названии категории
+                    if search_text in category_name.lower():
+                        show_category = True
+                    
+                    # Поиск по товарам
+                    if not show_category:
+                        for product in category['Products']:
+                            # Разбираем строку товара
+                            parts = product.split(',')
+                            if len(parts) >= 6:
+                                product_text = ','.join(parts).lower()
+                                if search_text in product_text:
+                                    show_category = True
+                                    found_in_products = True
+                                    break
+                
+                if show_category:
+                    # Информация для отображения
+                    display_name = category_name
+                    product_info = f"Товаров: {product_count}"
+                    
+                    if search_text and found_in_products:
+                        # Ищем первый найденный товар для отображения его информации
+                        for product in category['Products']:
+                            parts = product.split(',')
+                            if len(parts) >= 6:
+                                product_text = ','.join(parts).lower()
+                                if search_text in product_text:
+                                    # Найден товар - формируем информацию о нем
+                                    classname = parts[0]
+                                    buy_price = parts[4]
+                                    sell_price = parts[5]
+                                    product_info = f"{classname} | Покупка:{buy_price} | Продажа:{sell_price}"
+                                    display_name = f"{category_name} ★"
+                                    break
+                    
+                    item = QTreeWidgetItem([display_name, product_info])
+                    
+                    # Применяем стили
+                    if search_text and "★" in display_name:
+                        # Подсветка найденных товаров - яркий золотистый цвет
+                        item.setBackground(0, QColor(255, 193, 7))  # Золотистый
+                        item.setBackground(1, QColor(255, 193, 7))
+                        item.setForeground(0, QColor(33, 37, 41))   # Темный текст
+                        item.setForeground(1, QColor(33, 37, 41))
+                        font = QFont()
+                        font.setBold(True)
+                        font.setPointSize(14)
+                        item.setFont(0, font)
+                        item.setFont(1, font)
+                        
+                        # Добавляем иконку к товару
+                        if "★" not in display_name:
+                            item.setText(0, f"⭐ {display_name}")
+                    else:
+                        # Чередующиеся цвета - более мягкие
+                        if display_index % 2 == 0:
+                            item.setBackground(0, QColor(248, 249, 250))  # Светло-серый
+                            item.setBackground(1, QColor(248, 249, 250))
+                        else:
+                            item.setBackground(0, QColor(255, 255, 255))  # Белый
+                            item.setBackground(1, QColor(255, 255, 255))
+                    
+                    self.category_table.addTopLevelItem(item)
+                    display_index += 1
+                        
+    def filter_traders(self):
+        """Фильтрация торговцев по поисковому запросу"""
+        search_text = self.search_entry.text().lower().strip()
+        
+        self.category_table.clear()
+        
+        if 'Traders' in self.config_data:
+            display_index = 0
+            for trader in self.config_data['Traders']:
+                trader_name = trader.get('GivenName', 'Неизвестный')
+                trader_role = trader.get('Role', 'Торговец')
+                trader_id = trader.get('Id', -1)
+                show_trader = False
+                
+                # Если поиск пустой, показываем все
+                if not search_text:
+                    show_trader = True
+                else:
+                    # Поиск в названии торговца
+                    if search_text in trader_name.lower():
+                        show_trader = True
+                    # Поиск в роли
+                    elif search_text in trader_role.lower():
+                        show_trader = True
+                    # Поиск в ID
+                    elif search_text in str(trader_id):
+                        show_trader = True
+                
+                if show_trader:
+                    # Информация для отображения
+                    display_name = trader_name
+                    trader_info = f"ID: {trader_id} | Роль: {trader_role}"
+                    
+                    if search_text and (search_text in trader_name.lower() or 
+                                      search_text in trader_role.lower() or 
+                                      search_text in str(trader_id)):
+                        display_name = f"{trader_name} ★"
+                    
+                    item = QTreeWidgetItem([display_name, trader_info])
+                    
+                    # Применяем стили
+                    if search_text and "★" in display_name:
+                        # Подсветка найденных торговцев - яркий золотистый цвет
+                        item.setBackground(0, QColor(255, 193, 7))  # Золотистый
+                        item.setBackground(1, QColor(255, 193, 7))
+                        item.setForeground(0, QColor(33, 37, 41))   # Темный текст
+                        item.setForeground(1, QColor(33, 37, 41))
+                        font = QFont()
+                        font.setBold(True)
+                        font.setPointSize(14)
+                        item.setFont(0, font)
+                        item.setFont(1, font)
+                    else:
+                        # Чередующиеся цвета - более мягкие
+                        if display_index % 2 == 0:
+                            item.setBackground(0, QColor(248, 249, 250))  # Светло-серый
+                            item.setBackground(1, QColor(248, 249, 250))
+                        else:
+                            item.setBackground(0, QColor(255, 255, 255))  # Белый
+                            item.setBackground(1, QColor(255, 255, 255))
+                    
+                    self.category_table.addTopLevelItem(item)
+                    display_index += 1
+                    
+    def filter_ids(self):
+        """Фильтрация ID торговцев по поисковому запросу"""
+        search_text = self.search_entry.text().lower().strip()
+        
+        self.category_table.clear()
+        
+        if 'IDs' in self.config_data:
+            display_index = 0
+            for trader_id in self.config_data['IDs']:
+                trader_id_value = trader_id.get('Id', -1)
+                categories = trader_id.get('Categories', [])
+                categories_count = len(categories)
+                show_trader = False
+                
+                # Если поиск пустой, показываем все
+                if not search_text:
+                    show_trader = True
+                else:
+                    # Поиск в ID торговца
+                    if search_text in str(trader_id_value):
+                        show_trader = True
+                    # Поиск в категориях
+                    else:
+                        for category in categories:
+                            if search_text in category.lower():
+                                show_trader = True
+                                break
+                
+                if show_trader:
+                    # Информация для отображения
+                    display_name = f"ID: {trader_id_value}"
+                    trader_info = f"Категорий: {categories_count}"
+                    
+                    if search_text and (search_text in str(trader_id_value) or 
+                                      any(search_text in cat.lower() for cat in categories)):
+                        display_name = f"ID: {trader_id_value} ★"
+                    
+                    item = QTreeWidgetItem([display_name, trader_info])
+                    
+                    # Применяем стили
+                    if search_text and "★" in display_name:
+                        # Подсветка найденных торговцев - яркий золотистый цвет
+                        item.setBackground(0, QColor(255, 193, 7))  # Золотистый
+                        item.setBackground(1, QColor(255, 193, 7))
+                        item.setForeground(0, QColor(33, 37, 41))   # Темный текст
+                        item.setForeground(1, QColor(33, 37, 41))
+                        font = QFont()
+                        font.setBold(True)
+                        font.setPointSize(14)
+                        item.setFont(0, font)
+                        item.setFont(1, font)
+                    else:
+                        # Чередующиеся цвета - более мягкие
+                        if display_index % 2 == 0:
+                            item.setBackground(0, QColor(248, 249, 250))  # Светло-серый
+                            item.setBackground(1, QColor(248, 249, 250))
+                        else:
+                            item.setBackground(0, QColor(255, 255, 255))  # Белый
+                            item.setBackground(1, QColor(255, 255, 255))
+                    
+                    self.category_table.addTopLevelItem(item)
+                    display_index += 1
+                    
+    def on_search_change(self):
+        """Обработчик изменения поискового запроса"""
+        if self.file_type == "price":
+            self.filter_categories()
+        elif self.file_type == "general":
+            self.filter_traders()
+        else:
+            self.filter_ids()
+        
+    def clear_search(self):
+        """Очистка поискового запроса"""
+        self.search_entry.clear()
+        self.search_entry.setFocus()
+        
+        # Если файл не загружен, показываем подсказку о перетаскивании
+        if not self.config_data:
+            self.show_drag_drop_hint()
+        
+
+    def on_category_double_click(self, item):
+        """Обработчик двойного клика по категории/торговцу"""
+        if not item or not self.config_data:
+            return
+            
+        item_name = item.text(0)
+        
+        # Убираем звездочку из названия, если она есть
+        if item_name.endswith(" ★"):
+            item_name = item_name[:-2]
+        
+        if self.file_type == "price":
+            # Обработка для файла цен
+            # Находим индекс категории
+            category_index = None
+            for i, category in enumerate(self.config_data['TraderCategories']):
+                if category['CategoryName'] == item_name:
+                    category_index = i
+                    break
+            
+            if category_index is not None:
+                # Получаем текущий поисковый запрос
+                search_text = self.search_entry.text().strip()
+            
+            # Если поиск активен и товар найден в данной категории, сразу открываем редактор первого найденного товара
+            if search_text and "★" in item.text(0):
+                category = self.config_data['TraderCategories'][category_index]
+                for product_index, product in enumerate(category['Products']):
+                    parts = product.split(',')
+                    if len(parts) >= 6:
+                        # Ищем во всех полях товара
+                        product_text = f"{parts[0]},{parts[1]},{parts[2]},{parts[3]},{parts[4]},{parts[5]}".lower()
+                        if search_text.lower() in product_text:
+                            # Найден товар! Сразу открываем редактор
+                            self.edit_product_dialog(category_index, product_index, product)
+                            return
+            
+            # Обычное открытие окна с товарами
+            self.open_product_window(category_index, item_name, search_text)
+        elif self.file_type == "general":
+            # Обработка для файла general
+            # Находим индекс торговца
+            trader_index = None
+            for i, trader in enumerate(self.config_data['Traders']):
+                if trader.get('GivenName', '') == item_name:
+                    trader_index = i
+                    break
+            
+            if trader_index is not None:
+                # Открываем диалог редактирования торговца
+                self.edit_trader_dialog(trader_index)
+        else:
+            # Обработка для файла IDs
+            # Извлекаем ID из названия (формат: "ID: X")
+            if item_name.startswith("ID: "):
+                try:
+                    trader_id_value = int(item_name[4:])  # Убираем "ID: "
+                    # Находим индекс торговца по ID
+                    trader_index = None
+                    for i, trader_id in enumerate(self.config_data['IDs']):
+                        if trader_id.get('Id') == trader_id_value:
+                            trader_index = i
+                            break
+                    
+                    if trader_index is not None:
+                        # Открываем диалог редактирования ID торговца
+                        self.edit_trader_id_dialog(trader_index)
+                except ValueError:
+                    pass
+                
+    def edit_trader_dialog(self, trader_index):
+        """Диалог редактирования торговца"""
+        trader = self.config_data['Traders'][trader_index]
+        dialog = TraderEditDialog(self, trader)
+        if dialog.exec_() == QDialog.Accepted:
+            # Обновляем данные
+            updated_trader = dialog.get_trader_data()
+            self.config_data['Traders'][trader_index] = updated_trader
+            
+            self.filter_traders()
+            self.auto_save()
+            self.status_bar.showMessage("Торговец отредактирован")
+            
+    def edit_trader_id_dialog(self, trader_index):
+        """Диалог редактирования ID торговца"""
+        trader_id_data = self.config_data['IDs'][trader_index]
+        dialog = TraderIDEditDialog(self, trader_id_data)
+        if dialog.exec_() == QDialog.Accepted:
+            # Обновляем данные
+            updated_trader_id = dialog.get_trader_id_data()
+            self.config_data['IDs'][trader_index] = updated_trader_id
+            
+            self.filter_ids()
+            self.auto_save()
+            self.status_bar.showMessage("ID торговца отредактирован")
+            
+    def edit_product_dialog(self, category_index, product_index, product_str):
+        """Диалог редактирования товара"""
+        dialog = ProductEditDialog(self, product_str)
+        if dialog.exec_() == QDialog.Accepted:
+            # Обновляем данные
+            new_product_str = dialog.get_product_string()
+            category = self.config_data['TraderCategories'][category_index]
+            category['Products'][product_index] = new_product_str
+            
+            self.filter_categories()
+            self.auto_save()
+            self.status_bar.showMessage("Товар отредактирован из поиска")
+            
+    def open_product_window(self, category_index, category_name, search_text=""):
+        """Открытие окна с товарами"""
+        window = ProductWindow(self, self.config_data, category_index, category_name, search_text)
+        window.exec_()
+        # Обновляем список категорий после закрытия окна
+        self.filter_categories()
+        self.auto_save()
+        
+    def add_category(self):
+        """Добавление новой категории/торговца"""
+        if self.file_type == "price":
+            name, ok = QInputDialog.getText(self, 'Новая категория', 'Введите название категории:')
+            if ok and name:
+                new_category = {
+                    "CategoryName": name,
+                    "Products": []
+                }
+                if 'TraderCategories' not in self.config_data:
+                    self.config_data['TraderCategories'] = []
+                self.config_data['TraderCategories'].append(new_category)
+                self.filter_categories()
+                self.auto_save()
+                self.status_bar.showMessage(f"Добавлена категория: {name}")
+        elif self.file_type == "general":
+            # Добавление нового торговца
+            self.add_trader()
+        else:
+            # Добавление нового ID торговца
+            self.add_trader_id()
+            
+    def add_trader(self):
+        """Добавление нового торговца"""
+        # Создаем базовый торговец
+        new_trader = {
+            "Id": len(self.config_data.get('Traders', [])),
+            "Name": "pr_npc_neutrals",
+            "GivenName": "Новый торговец",
+            "Role": "Торговец",
+            "Position": [0, 0, 0],
+            "Orientation": [0, 0, 0],
+            "Clothes": []
+        }
+        
+        # Открываем диалог редактирования
+        dialog = TraderEditDialog(self, new_trader)
+        if dialog.exec_() == QDialog.Accepted:
+            updated_trader = dialog.get_trader_data()
+            
+            if 'Traders' not in self.config_data:
+                self.config_data['Traders'] = []
+            self.config_data['Traders'].append(updated_trader)
+            
+            self.filter_traders()
+            self.auto_save()
+            self.status_bar.showMessage(f"Добавлен торговец: {updated_trader['GivenName']}")
+            
+    def add_trader_id(self):
+        """Добавление нового ID торговца"""
+        # Создаем базовый ID торговца
+        new_trader_id = {
+            "Id": len(self.config_data.get('IDs', [])),
+            "Categories": [],
+            "LicencesRequired": [],
+            "CurrenciesAccepted": []
+        }
+        
+        # Открываем диалог редактирования
+        dialog = TraderIDEditDialog(self, new_trader_id)
+        if dialog.exec_() == QDialog.Accepted:
+            updated_trader_id = dialog.get_trader_id_data()
+            
+            if 'IDs' not in self.config_data:
+                self.config_data['IDs'] = []
+            self.config_data['IDs'].append(updated_trader_id)
+            
+            self.filter_ids()
+            self.auto_save()
+            self.status_bar.showMessage(f"Добавлен ID торговца: {updated_trader_id['Id']}")
+            
+    def delete_category(self):
+        """Удаление выбранной категории/торговца"""
+        current_item = self.category_table.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "Предупреждение", "Выберите элемент для удаления")
+            return
+        
+        item_name = current_item.text(0)
+        if item_name.endswith(" ★"):
+            item_name = item_name[:-2]
+        
+        if self.file_type == "price":
+            reply = QMessageBox.question(self, 'Подтверждение', 
+                                       f"Удалить категорию '{item_name}' и все товары в ней?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            
+            if reply == QMessageBox.Yes:
+                # Находим и удаляем категорию
+                for i, category in enumerate(self.config_data['TraderCategories']):
+                    if category['CategoryName'] == item_name:
+                        del self.config_data['TraderCategories'][i]
+                        break
+                
+                self.filter_categories()
+                self.auto_save()
+                self.status_bar.showMessage(f"Удалена категория: {item_name}")
+        elif self.file_type == "general":
+            reply = QMessageBox.question(self, 'Подтверждение', 
+                                       f"Удалить торговца '{item_name}'?",
+                                       QMessageBox.Yes | QMessageBox.No)
+            
+            if reply == QMessageBox.Yes:
+                # Находим и удаляем торговца
+                for i, trader in enumerate(self.config_data['Traders']):
+                    if trader.get('GivenName', '') == item_name:
+                        del self.config_data['Traders'][i]
+                        break
+                
+                self.filter_traders()
+                self.auto_save()
+                self.status_bar.showMessage(f"Удален торговец: {item_name}")
+        else:
+            # Удаление ID торговца
+            if item_name.startswith("ID: "):
+                try:
+                    trader_id_value = int(item_name[4:])  # Убираем "ID: "
+                    reply = QMessageBox.question(self, 'Подтверждение', 
+                                               f"Удалить ID торговца '{trader_id_value}'?",
+                                               QMessageBox.Yes | QMessageBox.No)
+                    
+                    if reply == QMessageBox.Yes:
+                        # Находим и удаляем ID торговца
+                        for i, trader_id in enumerate(self.config_data['IDs']):
+                            if trader_id.get('Id') == trader_id_value:
+                                del self.config_data['IDs'][i]
+                                break
+                        
+                        self.filter_ids()
+                        self.auto_save()
+                        self.status_bar.showMessage(f"Удален ID торговца: {trader_id_value}")
+                except ValueError:
+                    pass
+            
     def open_file(self):
-        filename = filedialog.askopenfilename(
-            title="Открыть файл конфигурации",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        """Открытие файла через диалог"""
+        filename, _ = QFileDialog.getOpenFileName(
+            self, "Открыть файл конфигурации", "",
+            "JSON files (*.json);;All files (*.*)"
         )
         if filename:
-            try:
-                with open(filename, 'r', encoding='utf-8') as f:
-                    self.config_data = json.load(f)
-                self.current_file = filename
-                self.load_categories()
-                self.file_info_var.set(f"Файл: {os.path.basename(filename)}")
-                self.status_var.set(f"Файл загружен: {os.path.basename(filename)}")
-                self.auto_save()  # Сохраняем сразу после загрузки для создания резервной копии
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось открыть файл: {str(e)}")
-    
-    def auto_save(self):
-        """Автоматическое сохранение файла"""
-        if self.current_file:
-            try:
-                with open(self.current_file, 'w', encoding='utf-8') as f:
-                    json.dump(self.config_data, f, indent=4, ensure_ascii=False)
-                self.status_var.set(f"Автосохранение: {os.path.basename(self.current_file)}")
-            except Exception as e:
-                messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {str(e)}")
-    
+            self.load_file(filename)
+            
     def save_file(self):
+        """Сохранение файла"""
         if not self.current_file:
             return self.save_file_as()
         
         try:
             with open(self.current_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config_data, f, indent=4, ensure_ascii=False)
-            self.status_var.set(f"Файл сохранен: {os.path.basename(self.current_file)}")
+            self.status_bar.showMessage(f"Файл сохранен: {os.path.basename(self.current_file)}")
         except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось сохранить файл: {str(e)}")
-    
+            QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл: {str(e)}")
+            
     def save_file_as(self):
-        filename = filedialog.asksaveasfilename(
-            title="Сохранить файл как",
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json"), ("All files", "*.*")]
+        """Сохранение файла как"""
+        filename, _ = QFileDialog.getSaveFileName(
+            self, "Сохранить файл как", "",
+            "JSON files (*.json);;All files (*.*)"
         )
         if filename:
             self.current_file = filename
             self.save_file()
-    
-    def load_categories(self):
-        # Очищаем дерево
-        for item in self.category_tree.get_children():
-            self.category_tree.delete(item)
-        
-        if 'TraderCategories' in self.config_data:
-            for category in self.config_data['TraderCategories']:
-                category_name = category['CategoryName']
-                product_count = len(category['Products'])
-                self.category_tree.insert("", tk.END, values=(category_name, product_count))
-    
-    def on_search_change(self, *args):
-        """Обработчик изменения поискового запроса"""
-        self.filter_categories()
-    
-    def filter_categories(self):
-        """Фильтрация категорий по поисковому запросу"""
-        search_text = self.search_var.get().lower().strip()
-        
-        # Очищаем дерево
-        for item in self.category_tree.get_children():
-            self.category_tree.delete(item)
-        
-        if 'TraderCategories' in self.config_data:
-            for category in self.config_data['TraderCategories']:
-                category_name = category['CategoryName']
-                product_count = len(category['Products'])
-                
-                # Если поиск пустой или категория содержит поисковый текст
-                if not search_text or search_text in category_name.lower():
-                    self.category_tree.insert("", tk.END, values=(category_name, product_count))
-    
-    def clear_search(self):
-        """Очистка поискового запроса"""
-        self.search_var.set("")
-        self.search_entry.focus()
-    
-    def refresh_categories(self):
-        self.filter_categories()
-        self.status_var.set("Список категорий обновлен")
-    
-    def on_category_double_click(self, event):
-        selection = self.category_tree.selection()
-        if selection:
-            item = self.category_tree.item(selection[0])
-            category_name = item['values'][0]
             
-            # Находим индекс категории
-            category_index = None
-            for i, category in enumerate(self.config_data['TraderCategories']):
-                if category['CategoryName'] == category_name:
-                    category_index = i
-                    break
-            
-            if category_index is not None:
-                # Открываем окно с товарами
-                ProductWindow(self.root, self.config_data, category_index, category_name, self.on_product_window_closed)
-    
-    def on_product_window_closed(self):
-        # Обновляем список категорий после закрытия окна с товарами
-        self.refresh_categories()
-        self.auto_save()
-    
-    def add_category(self):
-        name = simpledialog.askstring("Новая категория", "Введите название категории:")
-        if name:
-            new_category = {
-                "CategoryName": name,
-                "Products": []
-            }
-            self.config_data['TraderCategories'].append(new_category)
-            self.filter_categories()
-            self.auto_save()
-            self.status_var.set(f"Добавлена категория: {name}")
-    
-    def delete_category(self):
-        selection = self.category_tree.selection()
-        if not selection:
-            messagebox.showwarning("Предупреждение", "Выберите категорию для удаления")
-            return
-        
-        item = self.category_tree.item(selection[0])
-        category_name = item['values'][0]
-        
-        if messagebox.askyesno("Подтверждение", f"Удалить категорию '{category_name}' и все товары в ней?"):
-            # Находим и удаляем категорию
-            for i, category in enumerate(self.config_data['TraderCategories']):
-                if category['CategoryName'] == category_name:
-                    del self.config_data['TraderCategories'][i]
-                    break
-            
-            self.filter_categories()
-            self.auto_save()
-            self.status_var.set(f"Удалена категория: {category_name}")
+    def auto_save(self):
+        """Автоматическое сохранение файла"""
+        if self.current_file:
+            try:
+                with open(self.current_file, 'w', encoding='utf-8') as f:
+                    json.dump(self.config_data, f, indent=4, ensure_ascii=False)
+                self.status_bar.showMessage(f"Автосохранение: {os.path.basename(self.current_file)}")
+            except Exception as e:
+                QMessageBox.critical(self, "Ошибка", f"Не удалось сохранить файл: {str(e)}")
 
-class ProductWindow:
-    def __init__(self, parent, config_data, category_index, category_name, callback):
+
+class ProductWindow(QDialog):
+    def __init__(self, parent, config_data, category_index, category_name, search_text=""):
+        super().__init__(parent)
         self.parent = parent
         self.config_data = config_data
         self.category_index = category_index
         self.category_name = category_name
-        self.callback = callback
-        self.selected_product = None
+        self.search_text = search_text.lower()
         
-        # Создаем окно
-        self.window = tk.Toplevel(parent)
-        self.window.title(f"Товары: {category_name}")
-        self.window.geometry("1000x700")
-        self.window.transient(parent)
-        self.window.grab_set()
+        # Формируем заголовок с информацией о поиске
+        title = f"Товары: {category_name}"
+        if self.search_text:
+            title += f" | Поиск: '{search_text}'"
         
-        # Центрируем окно
-        self.window.geometry("+%d+%d" % (parent.winfo_rootx() + 50, parent.winfo_rooty() + 50))
+        self.setWindowTitle(title)
+        self.setModal(True)
+        self.resize(1400, 800)
         
-        self.create_widgets()
+        # Установка иконки окна
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+            else:
+                pixmap = QPixmap(32, 32)
+                pixmap.fill(QColor(52, 152, 219))
+                self.setWindowIcon(QIcon(pixmap))
+        except Exception as e:
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(QColor(52, 152, 219))
+            self.setWindowIcon(QIcon(pixmap))
+        self.setMinimumSize(900, 700)
+        
+        self.setup_ui()
         self.load_products()
         
-        # Обработчик закрытия окна
-        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+    def setup_ui(self):
+        """Настройка интерфейса окна товаров"""
+        layout = QVBoxLayout(self)
         
-    def create_widgets(self):
-        # Заголовок
-        header_frame = ttk.Frame(self.window)
-        header_frame.pack(fill=tk.X, padx=5, pady=5)
+        # Заголовок и кнопки
+        header_layout = QHBoxLayout()
         
-        ttk.Label(header_frame, text=f"Категория: {self.category_name}", font=("Arial", 12, "bold")).pack(side=tk.LEFT)
+        title_label = QLabel(f"📦 Категория: {self.category_name}")
+        title_font = QFont()
+        title_font.setBold(True)
+        title_font.setPointSize(16)  # Увеличил размер
+        title_label.setFont(title_font)
+        title_label.setStyleSheet("""
+            QLabel {
+                color: #2c3e50;
+                font-size: 16px;
+                font-weight: bold;
+                padding: 10px;
+                margin: 5px;
+            }
+        """)
+        header_layout.addWidget(title_label)
         
-        # Кнопки управления
-        ttk.Button(header_frame, text="Добавить товар", command=self.add_product).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(header_frame, text="Удалить товар", command=self.delete_product).pack(side=tk.RIGHT, padx=(5, 0))
+        header_layout.addStretch()
         
-        # Основной контент
-        content_frame = ttk.Frame(self.window)
-        content_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Стиль для кнопок в окне товаров
+        button_style = """
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 12px 20px;
+                border: none;
+                border-radius: 8px;
+                color: white;
+                margin: 5px;
+                min-width: 130px;
+            }
+        """
         
-        # Список товаров
-        list_frame = ttk.LabelFrame(content_frame, text="Товары")
-        list_frame.pack(fill=tk.BOTH, expand=True)
+        add_button = QPushButton("➕ Добавить товар")
+        add_button.clicked.connect(self.add_product)
+        add_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #27ae60;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+            QPushButton:pressed {
+                background-color: #1e8449;
+            }
+        """)
+        header_layout.addWidget(add_button)
         
-        # Создаем Treeview для товаров
-        columns = ("Classname", "Coefficient", "Max Stock", "Trade Quantity", "Buy Price", "Sell Price")
-        self.product_tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
+        delete_button = QPushButton("🗑️ Удалить товар")
+        delete_button.clicked.connect(self.delete_product)
+        delete_button.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #e74c3c;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+            QPushButton:pressed {
+                background-color: #a93226;
+            }
+        """)
+        header_layout.addWidget(delete_button)
+        
+        layout.addLayout(header_layout)
+        
+        # Таблица товаров
+        self.product_table = QTreeWidget()
+        self.product_table.setHeaderLabels([
+            "🔹 Класснейм", "⚙️ Коэффициент", "📦 Макс. запас", 
+            "🔢 Кол-во", "💰 Цена покупки", "💵 Цена продажи"
+        ])
         
         # Настройка колонок
-        self.product_tree.heading("Classname", text="Класснейм")
-        self.product_tree.heading("Coefficient", text="Коэффициент")
-        self.product_tree.heading("Max Stock", text="Макс. запас")
-        self.product_tree.heading("Trade Quantity", text="Кол-во")
-        self.product_tree.heading("Buy Price", text="Цена покупки")
-        self.product_tree.heading("Sell Price", text="Цена продажи")
+        header = self.product_table.header()
+        header.setSectionResizeMode(0, QHeaderView.Interactive)  # Классnейм с возможностью изменения
+        header.setSectionResizeMode(1, QHeaderView.Interactive)  # Коэффициент
+        header.setSectionResizeMode(2, QHeaderView.Interactive)  # Макс. запас
+        header.setSectionResizeMode(3, QHeaderView.Interactive)  # Кол-во
+        header.setSectionResizeMode(4, QHeaderView.Interactive)  # Цена покупки
+        header.setSectionResizeMode(5, QHeaderView.Interactive)  # Цена продажи
         
-        self.product_tree.column("Classname", width=180, anchor=tk.W)
-        self.product_tree.column("Coefficient", width=80, anchor=tk.CENTER)
-        self.product_tree.column("Max Stock", width=80, anchor=tk.CENTER)
-        self.product_tree.column("Trade Quantity", width=90, anchor=tk.CENTER)
-        self.product_tree.column("Buy Price", width=80, anchor=tk.CENTER)
-        self.product_tree.column("Sell Price", width=80, anchor=tk.CENTER)
+        # Установка оптимальных размеров колонок
+        self.product_table.setColumnWidth(0, 350)  # Класснейм - увеличил для длинных названий
+        self.product_table.setColumnWidth(1, 150)  # Коэффициент
+        self.product_table.setColumnWidth(2, 150)  # Макс. запас
+        self.product_table.setColumnWidth(3, 120)  # Кол-во
+        self.product_table.setColumnWidth(4, 150)  # Цена покупки
+        self.product_table.setColumnWidth(5, 150)  # Цена продажи
         
-        # Привязываем выбор
-        self.product_tree.bind("<<TreeviewSelect>>", self.on_product_select)
-        self.product_tree.bind("<Double-1>", self.on_product_double_click)
+        # Настройка внешнего вида с увеличенным шрифтом
+        self.product_table.setAlternatingRowColors(True)
+        self.product_table.setRootIsDecorated(False)
+        self.product_table.setSelectionBehavior(QTreeWidget.SelectRows)
         
-        # Скроллбары
-        v_scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=self.product_tree.yview)
-        h_scrollbar = ttk.Scrollbar(list_frame, orient=tk.HORIZONTAL, command=self.product_tree.xview)
-        self.product_tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        # Улучшенные стили для таблицы товаров
+        self.product_table.setStyleSheet("""
+            QTreeWidget {
+                font-size: 14px;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                border: 2px solid #bdc3c7;
+                border-radius: 8px;
+                background-color: white;
+                alternate-background-color: #f8f9fa;
+                selection-background-color: #3498db;
+                gridline-color: #ecf0f1;
+                outline: none;
+            }
+            
+            QTreeWidget::item {
+                padding: 10px 8px;
+                border-bottom: 1px solid #ecf0f1;
+                font-size: 14px;
+                font-weight: normal;
+                height: 32px;
+            }
+            
+            QTreeWidget::item:selected {
+                background-color: #3498db;
+                color: white;
+                font-weight: bold;
+            }
+            
+            QTreeWidget::item:hover {
+                background-color: #e8f4f8;
+                color: #2c3e50;
+            }
+            
+            QHeaderView::section {
+                font-size: 13px;
+                font-weight: bold;
+                font-family: 'Segoe UI', Arial, sans-serif;
+                padding: 12px 8px;
+                border: none;
+                border-right: 1px solid #bdc3c7;
+                border-bottom: 3px solid #3498db;
+                background-color: #ecf0f1;
+                color: #2c3e50;
+                text-align: center;
+            }
+            
+            QHeaderView::section:hover {
+                background-color: #d5dbdb;
+            }
+            
+            QHeaderView::section:first {
+                text-align: left;
+            }
+        """)
         
-        # Размещение элементов
-        self.product_tree.grid(row=0, column=0, sticky="nsew")
-        v_scrollbar.grid(row=0, column=1, sticky="ns")
-        h_scrollbar.grid(row=1, column=0, sticky="ew")
+        # Подключение событий
+        self.product_table.itemDoubleClicked.connect(self.edit_product)
         
-        list_frame.grid_rowconfigure(0, weight=1)
-        list_frame.grid_columnconfigure(0, weight=1)
+        layout.addWidget(self.product_table)
         
-        # Статус
-        self.status_var = tk.StringVar()
-        self.status_var.set("Двойной клик для редактирования товара")
-        status_label = ttk.Label(self.window, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_label.pack(side=tk.BOTTOM, fill=tk.X)
-    
+        # Статусная строка
+        self.status_label = QLabel("🖱️ Двойной клик для редактирования товара")
+        self.status_label.setStyleSheet("""
+            QLabel {
+                font-size: 14px;
+                background-color: #34495e;
+                color: white;
+                border: 2px solid #3498db;
+                border-radius: 6px;
+                padding: 10px;
+                font-weight: bold;
+            }
+        """)
+        layout.addWidget(self.status_label)
+        
     def load_products(self):
-        # Очищаем дерево
-        for item in self.product_tree.get_children():
-            self.product_tree.delete(item)
+        """Загрузка товаров в таблицу"""
+        self.product_table.clear()
         
         category = self.config_data['TraderCategories'][self.category_index]
-        for product in category['Products']:
+        display_index = 0
+        first_found_item = None
+        
+        for i, product in enumerate(category['Products']):
             parts = product.split(',')
             if len(parts) >= 6:
                 classname = parts[0]
@@ -374,317 +1344,660 @@ class ProductWindow:
                 buy_price = parts[4]
                 sell_price = parts[5]
                 
-                self.product_tree.insert("", tk.END, values=(classname, coefficient, maxstock, trade_quantity, buy_price, sell_price))
-    
-    def on_product_select(self, event):
-        """Обработчик выбора товара (оставлен для совместимости)"""
-        pass
-    
-    def on_product_double_click(self, event):
-        """Обработчик двойного клика по товару"""
-        selection = self.product_tree.selection()
-        if selection:
-            item = self.product_tree.item(selection[0])
-            values = item['values']
+                # Проверяем, соответствует ли товар поиску
+                show_product = True
+                is_found_item = False
+                
+                if self.search_text:
+                    # Ищем во всех полях товара
+                    product_text = f"{classname},{coefficient},{maxstock},{trade_quantity},{buy_price},{sell_price}".lower()
+                    if self.search_text in product_text:
+                        is_found_item = True
+                    else:
+                        # Если поиск активен, но товар не найден, пропускаем его
+                        show_product = False
+                
+                if show_product:
+                    item = QTreeWidgetItem([classname, coefficient, maxstock, trade_quantity, buy_price, sell_price])
+                    
+                    # Определяем стиль
+                    if is_found_item:
+                        # Стиль для найденных товаров - золотистый
+                        highlight_color = QColor(255, 193, 7)
+                        text_color = QColor(33, 37, 41)
+                        for col in range(6):
+                            item.setBackground(col, highlight_color)
+                            item.setForeground(col, text_color)
+                        font = QFont()
+                        font.setBold(True)
+                        font.setPointSize(14)
+                        for col in range(6):
+                            item.setFont(col, font)
+                    else:
+                        # Стандартные цвета для обычных строк
+                        pass  # Используем стандартное чередование из CSS
+                    
+                    self.product_table.addTopLevelItem(item)
+                    
+                    # Запоминаем первый найденный товар для автовыбора
+                    if is_found_item and first_found_item is None:
+                        first_found_item = item
+                    
+                    display_index += 1
+        
+        # Автоматически выбираем первый найденный товар
+        if first_found_item and self.search_text:
+            self.product_table.setCurrentItem(first_found_item)
+            self.product_table.scrollToItem(first_found_item)
             
-            # Находим индекс товара
-            item_name = values[0]
-            category = self.config_data['TraderCategories'][self.category_index]
+    def edit_product(self, item):
+        """Редактирование выбранного товара"""
+        if not item:
+            return
             
-            for i, product in enumerate(category['Products']):
-                if product.split(',')[0] == item_name:
-                    # Открываем окно редактирования товара
-                    ProductEditWindow(self.window, self.config_data, self.category_index, i, product, self.on_product_edited)
-                    break
-    
-    def on_product_edited(self):
-        """Callback после редактирования товара"""
-        self.load_products()
-        self.auto_save()
-        self.status_var.set("Товар отредактирован")
-    
-    def auto_save(self):
-        """Автоматическое сохранение файла"""
-        if hasattr(self.parent, 'auto_save'):
-            self.parent.auto_save()
-    
+        # Получаем данные товара
+        classname = item.text(0)
+        
+        # Находим индекс товара в данных
+        category = self.config_data['TraderCategories'][self.category_index]
+        product_index = None
+        product_str = None
+        
+        for i, product in enumerate(category['Products']):
+            if product.split(',')[0] == classname:
+                product_index = i
+                product_str = product
+                break
+        
+        if product_index is not None and product_str is not None:
+            dialog = ProductEditDialog(self, product_str)
+            if dialog.exec_() == QDialog.Accepted:
+                # Обновляем данные
+                new_product_str = dialog.get_product_string()
+                category['Products'][product_index] = new_product_str
+                
+                self.load_products()
+                self.parent.auto_save()
+                self.status_label.setText("✅ Товар успешно отредактирован")
+                
     def add_product(self):
-        dialog = ProductDialog(self.window)
-        if dialog.result:
-            classname, coefficient, maxstock, trade_quantity, buy_price, sell_price = dialog.result
-            new_product_str = f"{classname},{coefficient},{maxstock},{trade_quantity},{buy_price},{sell_price}"
+        """Добавление нового товара"""
+        dialog = ProductAddDialog(self)
+        if dialog.exec_() == QDialog.Accepted:
+            new_product_str = dialog.get_product_string()
             
             category = self.config_data['TraderCategories'][self.category_index]
             category['Products'].append(new_product_str)
             
             self.load_products()
-            self.auto_save()
-            self.status_var.set(f"Добавлен товар: {classname}")
-    
+            self.parent.auto_save()
+            classname = new_product_str.split(',')[0]
+            self.status_label.setText(f"✅ Товар добавлен: {classname}")
+            
     def delete_product(self):
-        selection = self.product_tree.selection()
-        if not selection:
-            messagebox.showwarning("Предупреждение", "Выберите товар для удаления")
+        """Удаление выбранного товара"""
+        current_item = self.product_table.currentItem()
+        if not current_item:
+            QMessageBox.warning(self, "Предупреждение", "Выберите товар для удаления")
             return
         
-        item = self.product_tree.item(selection[0])
-        item_name = item['values'][0]
+        classname = current_item.text(0)
         
-        # Находим индекс товара
-        category = self.config_data['TraderCategories'][self.category_index]
-        product_index = None
-        for i, product in enumerate(category['Products']):
-            if product.split(',')[0] == item_name:
-                product_index = i
-                break
+        reply = QMessageBox.question(self, 'Подтверждение', 
+                                   f"Удалить товар '{classname}'?",
+                                   QMessageBox.Yes | QMessageBox.No)
         
-        if product_index is not None:
-            if messagebox.askyesno("Подтверждение", f"Удалить товар '{item_name}'?"):
-                del category['Products'][product_index]
-                self.load_products()
-                self.auto_save()
-                self.status_var.set(f"Удален товар: {item_name}")
-    
-    def clear_product_fields(self):
-        """Очистка полей (оставлен для совместимости)"""
-        pass
-    
-    def on_closing(self):
-        if self.callback:
-            self.callback()
-        self.window.destroy()
+        if reply == QMessageBox.Yes:
+            # Находим и удаляем товар
+            category = self.config_data['TraderCategories'][self.category_index]
+            for i, product in enumerate(category['Products']):
+                if product.split(',')[0] == classname:
+                    del category['Products'][i]
+                    break
+            
+            self.load_products()
+            self.parent.auto_save()
+            self.status_label.setText(f"🗑️ Товар удален: {classname}")
 
-class ProductDialog:
+
+class ProductAddDialog(QDialog):
     def __init__(self, parent):
-        self.result = None
+        super().__init__(parent)
+        self.setWindowTitle("➕ Добавить товар")
+        self.setModal(True)
+        self.resize(550, 480)
+        self.setMinimumSize(500, 450)
         
-        # Создаем диалоговое окно
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Добавить товар")
-        self.dialog.geometry("400x250")
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
+        # Установка иконки окна
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+            else:
+                pixmap = QPixmap(32, 32)
+                pixmap.fill(QColor(52, 152, 219))
+                self.setWindowIcon(QIcon(pixmap))
+        except Exception as e:
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(QColor(52, 152, 219))
+            self.setWindowIcon(QIcon(pixmap))
         
-        # Центрируем окно
-        self.dialog.geometry("+%d+%d" % (parent.winfo_rootx() + 50, parent.winfo_rooty() + 50))
+        self.setup_ui()
         
-        # Создаем поля
-        ttk.Label(self.dialog, text="Название предмета:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.classname_var = tk.StringVar()
-        ttk.Entry(self.dialog, textvariable=self.classname_var, width=30).grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+    def setup_ui(self):
+        """Настройка интерфейса диалога добавления"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
-        ttk.Label(self.dialog, text="Коэффициент:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.coefficient_var = tk.StringVar(value="1")
-        ttk.Entry(self.dialog, textvariable=self.coefficient_var, width=10).grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        # Заголовок
+        title_label = QLabel("🛒 Добавление нового товара")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 10px;
+                margin-bottom: 10px;
+            }
+        """)
+        layout.addWidget(title_label)
         
-        ttk.Label(self.dialog, text="Макс. запас:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        self.maxstock_var = tk.StringVar(value="100")
-        ttk.Entry(self.dialog, textvariable=self.maxstock_var, width=10).grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        # Форма
+        form_layout = QFormLayout()
+        form_layout.setSpacing(18)
+        form_layout.setVerticalSpacing(15)
         
-        ttk.Label(self.dialog, text="Кол-во для торговли:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
-        self.trade_quantity_var = tk.StringVar(value="1")
-        ttk.Entry(self.dialog, textvariable=self.trade_quantity_var, width=10).grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        # Стиль для полей ввода
+        input_style = """
+            QLineEdit {
+                font-size: 14px;
+                padding: 12px 15px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                min-height: 20px;
+                max-height: 40px;
+            }
+            QLineEdit:focus {
+                border-color: #3498db;
+            }
+        """
         
-        ttk.Label(self.dialog, text="Цена покупки:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
-        self.buy_price_var = tk.StringVar(value="100")
-        ttk.Entry(self.dialog, textvariable=self.buy_price_var, width=10).grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        # Стиль для меток
+        label_style = """
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #34495e;
+                padding: 5px;
+            }
+        """
         
-        ttk.Label(self.dialog, text="Цена продажи:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
-        self.sell_price_var = tk.StringVar(value="50")
-        ttk.Entry(self.dialog, textvariable=self.sell_price_var, width=10).grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
+        self.classname_edit = QLineEdit()
+        self.classname_edit.setStyleSheet(input_style)
+        label1 = QLabel("🔹 Класснейм:")
+        label1.setStyleSheet(label_style)
+        form_layout.addRow(label1, self.classname_edit)
+        
+        self.coefficient_edit = QLineEdit("1")
+        self.coefficient_edit.setStyleSheet(input_style)
+        label2 = QLabel("⚙️ Коэффициент:")
+        label2.setStyleSheet(label_style)
+        form_layout.addRow(label2, self.coefficient_edit)
+        
+        self.maxstock_edit = QLineEdit("100")
+        self.maxstock_edit.setStyleSheet(input_style)
+        label3 = QLabel("📦 Макс. запас:")
+        label3.setStyleSheet(label_style)
+        form_layout.addRow(label3, self.maxstock_edit)
+        
+        self.trade_quantity_edit = QLineEdit("1")
+        self.trade_quantity_edit.setStyleSheet(input_style)
+        label4 = QLabel("🔢 Кол-во для торговли:")
+        label4.setStyleSheet(label_style)
+        form_layout.addRow(label4, self.trade_quantity_edit)
+        
+        self.buy_price_edit = QLineEdit("100")
+        self.buy_price_edit.setStyleSheet(input_style)
+        label5 = QLabel("💰 Цена покупки:")
+        label5.setStyleSheet(label_style)
+        form_layout.addRow(label5, self.buy_price_edit)
+        
+        self.sell_price_edit = QLineEdit("50")
+        self.sell_price_edit.setStyleSheet(input_style)
+        label6 = QLabel("💵 Цена продажи:")
+        label6.setStyleSheet(label_style)
+        form_layout.addRow(label6, self.sell_price_edit)
+        
+        layout.addLayout(form_layout)
         
         # Кнопки
-        button_frame = ttk.Frame(self.dialog)
-        button_frame.grid(row=6, column=0, columnspan=2, pady=20)
+        button_layout = QHBoxLayout()
         
-        ttk.Button(button_frame, text="OK", command=self.ok_clicked).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="Отмена", command=self.cancel_clicked).pack(side=tk.LEFT, padx=5)
+        save_button = QPushButton("Сохранить")
+        save_button.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                background-color: #27ae60;
+                color: white;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        save_button.clicked.connect(self.validate_and_accept)
         
-        # Ждем закрытия окна
-        self.dialog.wait_window()
-    
-    def ok_clicked(self):
-        # Проверяем, что все поля заполнены
-        if not all([self.classname_var.get().strip(), self.coefficient_var.get().strip(), 
-                   self.maxstock_var.get().strip(), self.trade_quantity_var.get().strip(), 
-                   self.buy_price_var.get().strip(), self.sell_price_var.get().strip()]):
-            messagebox.showwarning("Предупреждение", "Все поля должны быть заполнены")
+        cancel_button = QPushButton("Закрыть")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                background-color: #e74c3c;
+                color: white;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+    def validate_and_accept(self):
+        """Проверка данных и принятие диалога"""
+        if not all([self.classname_edit.text().strip(), self.coefficient_edit.text().strip(),
+                   self.maxstock_edit.text().strip(), self.trade_quantity_edit.text().strip(),
+                   self.buy_price_edit.text().strip(), self.sell_price_edit.text().strip()]):
+            QMessageBox.warning(self, "Предупреждение", "Все поля должны быть заполнены")
             return
         
-        self.result = (
-            self.classname_var.get().strip(),
-            self.coefficient_var.get().strip(),
-            self.maxstock_var.get().strip(),
-            self.trade_quantity_var.get().strip(),
-            self.buy_price_var.get().strip(),
-            self.sell_price_var.get().strip()
-        )
-        self.dialog.destroy()
-    
-    def cancel_clicked(self):
-        self.dialog.destroy()
+        self.accept()
+        
+    def get_product_string(self):
+        """Получение строки товара из полей"""
+        return f"{self.classname_edit.text().strip()},{self.coefficient_edit.text().strip()}," \
+               f"{self.maxstock_edit.text().strip()},{self.trade_quantity_edit.text().strip()}," \
+               f"{self.buy_price_edit.text().strip()},{self.sell_price_edit.text().strip()}"
 
-class ProductEditWindow:
-    def __init__(self, parent, config_data, category_index, product_index, product_str, callback):
-        self.parent = parent
-        self.config_data = config_data
-        self.category_index = category_index
-        self.product_index = product_index
+
+class ProductEditDialog(QDialog):
+    def __init__(self, parent, product_str):
+        super().__init__(parent)
         self.product_str = product_str
-        self.callback = callback
+        self.setWindowTitle("✏️ Редактирование товара")
+        self.setModal(True)
+        self.resize(550, 480)
+        self.setMinimumSize(500, 450)
         
-        # Создаем окно
-        self.window = tk.Toplevel(parent)
-        self.window.title("Редактирование товара")
-        self.window.geometry("400x350")
-        self.window.transient(parent)
-        self.window.grab_set()
+        # Установка иконки окна
+        try:
+            icon_path = os.path.join(os.path.dirname(__file__), 'icon.ico')
+            if os.path.exists(icon_path):
+                self.setWindowIcon(QIcon(icon_path))
+            else:
+                pixmap = QPixmap(32, 32)
+                pixmap.fill(QColor(52, 152, 219))
+                self.setWindowIcon(QIcon(pixmap))
+        except Exception as e:
+            pixmap = QPixmap(32, 32)
+            pixmap.fill(QColor(52, 152, 219))
+            self.setWindowIcon(QIcon(pixmap))
         
-        # Центрируем окно
-        self.window.geometry("+%d+%d" % (parent.winfo_rootx() + 100, parent.winfo_rooty() + 100))
-        
-        self.create_widgets()
+        self.setup_ui()
         self.load_product_data()
         
-        # Обработчик закрытия окна
-        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+    def setup_ui(self):
+        """Настройка интерфейса диалога редактирования"""
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 20, 20, 20)
+        layout.setSpacing(15)
         
-    def create_widgets(self):
         # Заголовок
-        header_frame = ttk.Frame(self.window)
-        header_frame.pack(fill=tk.X, padx=10, pady=10)
+        title_label = QLabel("✏️ Редактирование товара")
+        title_label.setStyleSheet("""
+            QLabel {
+                font-size: 16px;
+                font-weight: bold;
+                color: #2c3e50;
+                padding: 10px;
+                margin-bottom: 10px;
+            }
+        """)
+        layout.addWidget(title_label)
         
-        ttk.Label(header_frame, text="Редактирование товара", font=("Arial", 12, "bold")).pack()
+        # Форма
+        form_layout = QFormLayout()
+        form_layout.setSpacing(18)
+        form_layout.setVerticalSpacing(15)
         
-        # Основной контент
-        main_frame = ttk.Frame(self.window)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        # Стиль для полей ввода
+        input_style = """
+            QLineEdit {
+                font-size: 14px;
+                padding: 12px 15px;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                background-color: white;
+                min-height: 20px;
+                max-height: 40px;
+            }
+            QLineEdit:focus {
+                border-color: #3498db;
+            }
+        """
         
-        # Поля для редактирования
-        fields_frame = ttk.LabelFrame(main_frame, text="Параметры товара")
-        fields_frame.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+        # Стиль для меток
+        label_style = """
+            QLabel {
+                font-size: 14px;
+                font-weight: bold;
+                color: #34495e;
+                padding: 5px;
+            }
+        """
         
-        # Classname
-        ttk.Label(fields_frame, text="Название предмета:").grid(row=0, column=0, sticky=tk.W, padx=5, pady=5)
-        self.classname_var = tk.StringVar()
-        self.classname_entry = ttk.Entry(fields_frame, textvariable=self.classname_var, width=30)
-        self.classname_entry.grid(row=0, column=1, sticky=tk.W, padx=5, pady=5)
+        self.classname_edit = QLineEdit()
+        self.classname_edit.setStyleSheet(input_style)
+        label1 = QLabel("🔹 Класснейм:")
+        label1.setStyleSheet(label_style)
+        form_layout.addRow(label1, self.classname_edit)
         
-        # Coefficient
-        ttk.Label(fields_frame, text="Коэффициент:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=5)
-        self.coefficient_var = tk.StringVar()
-        self.coefficient_entry = ttk.Entry(fields_frame, textvariable=self.coefficient_var, width=10)
-        self.coefficient_entry.grid(row=1, column=1, sticky=tk.W, padx=5, pady=5)
+        self.coefficient_edit = QLineEdit()
+        self.coefficient_edit.setStyleSheet(input_style)
+        label2 = QLabel("⚙️ Коэффициент:")
+        label2.setStyleSheet(label_style)
+        form_layout.addRow(label2, self.coefficient_edit)
         
-        # Max Stock
-        ttk.Label(fields_frame, text="Макс. запас:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=5)
-        self.maxstock_var = tk.StringVar()
-        self.maxstock_entry = ttk.Entry(fields_frame, textvariable=self.maxstock_var, width=10)
-        self.maxstock_entry.grid(row=2, column=1, sticky=tk.W, padx=5, pady=5)
+        self.maxstock_edit = QLineEdit()
+        self.maxstock_edit.setStyleSheet(input_style)
+        label3 = QLabel("📦 Макс. запас:")
+        label3.setStyleSheet(label_style)
+        form_layout.addRow(label3, self.maxstock_edit)
         
-        # Trade Quantity
-        ttk.Label(fields_frame, text="Кол-во для торговли:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=5)
-        self.trade_quantity_var = tk.StringVar()
-        self.trade_quantity_entry = ttk.Entry(fields_frame, textvariable=self.trade_quantity_var, width=10)
-        self.trade_quantity_entry.grid(row=3, column=1, sticky=tk.W, padx=5, pady=5)
+        self.trade_quantity_edit = QLineEdit()
+        self.trade_quantity_edit.setStyleSheet(input_style)
+        label4 = QLabel("🔢 Кол-во для торговли:")
+        label4.setStyleSheet(label_style)
+        form_layout.addRow(label4, self.trade_quantity_edit)
         
-        # Buy Price
-        ttk.Label(fields_frame, text="Цена покупки:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=5)
-        self.buy_price_var = tk.StringVar()
-        self.buy_price_entry = ttk.Entry(fields_frame, textvariable=self.buy_price_var, width=10)
-        self.buy_price_entry.grid(row=4, column=1, sticky=tk.W, padx=5, pady=5)
+        self.buy_price_edit = QLineEdit()
+        self.buy_price_edit.setStyleSheet(input_style)
+        label5 = QLabel("💰 Цена покупки:")
+        label5.setStyleSheet(label_style)
+        form_layout.addRow(label5, self.buy_price_edit)
         
-        # Sell Price
-        ttk.Label(fields_frame, text="Цена продажи:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=5)
-        self.sell_price_var = tk.StringVar()
-        self.sell_price_entry = ttk.Entry(fields_frame, textvariable=self.sell_price_var, width=10)
-        self.sell_price_entry.grid(row=5, column=1, sticky=tk.W, padx=5, pady=5)
+        self.sell_price_edit = QLineEdit()
+        self.sell_price_edit.setStyleSheet(input_style)
+        label6 = QLabel("💵 Цена продажи:")
+        label6.setStyleSheet(label_style)
+        form_layout.addRow(label6, self.sell_price_edit)
+        
+        layout.addLayout(form_layout)
         
         # Кнопки
-        button_frame = ttk.Frame(self.window)
-        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        button_layout = QHBoxLayout()
         
-        ttk.Button(button_frame, text="Применить", command=self.apply_changes).pack(side=tk.RIGHT, padx=(5, 0))
-        ttk.Button(button_frame, text="Отмена", command=self.cancel_changes).pack(side=tk.RIGHT, padx=(5, 0))
+        save_button = QPushButton("Сохранить")
+        save_button.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                background-color: #27ae60;
+                color: white;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #229954;
+            }
+        """)
+        save_button.clicked.connect(self.accept)
         
-        # Статус
-        self.status_var = tk.StringVar()
-        self.status_var.set("Готов к редактированию")
-        status_label = ttk.Label(self.window, textvariable=self.status_var, relief=tk.SUNKEN)
-        status_label.pack(side=tk.BOTTOM, fill=tk.X)
+        cancel_button = QPushButton("Закрыть")
+        cancel_button.setStyleSheet("""
+            QPushButton {
+                font-size: 14px;
+                font-weight: bold;
+                padding: 10px 20px;
+                border: none;
+                border-radius: 6px;
+                background-color: #e74c3c;
+                color: white;
+                min-width: 100px;
+            }
+            QPushButton:hover {
+                background-color: #c0392b;
+            }
+        """)
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addStretch()
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
         
     def load_product_data(self):
-        """Загружаем данные товара в поля"""
+        """Загрузка данных товара в поля"""
         parts = self.product_str.split(',')
         if len(parts) >= 6:
-            self.classname_var.set(parts[0])
-            self.coefficient_var.set(parts[1])
-            self.maxstock_var.set(parts[2])
-            self.trade_quantity_var.set(parts[3])
-            self.buy_price_var.set(parts[4])
-            self.sell_price_var.set(parts[5])
+            self.classname_edit.setText(parts[0])
+            self.coefficient_edit.setText(parts[1])
+            self.maxstock_edit.setText(parts[2])
+            self.trade_quantity_edit.setText(parts[3])
+            self.buy_price_edit.setText(parts[4])
+            self.sell_price_edit.setText(parts[5])
             
-            self.status_var.set(f"Редактирование: {parts[0]}")
-    
-    def apply_changes(self):
-        """Применяем изменения"""
+    def get_product_string(self):
+        """Получение строки товара из полей"""
+        return f"{self.classname_edit.text()},{self.coefficient_edit.text()}," \
+               f"{self.maxstock_edit.text()},{self.trade_quantity_edit.text()}," \
+               f"{self.buy_price_edit.text()},{self.sell_price_edit.text()}"
+
+
+class TraderEditDialog(QDialog):
+    def __init__(self, parent, trader_data):
+        super().__init__(parent)
+        self.trader_data = trader_data.copy()
+        self.setWindowTitle("Редактирование торговца")
+        self.setModal(True)
+        self.resize(500, 400)
+        self.setup_ui()
+        self.load_trader_data()
+        
+    def setup_ui(self):
+        """Настройка интерфейса"""
+        layout = QVBoxLayout(self)
+        
+        # Форма
+        form_layout = QFormLayout()
+        
+        # Поля торговца
+        self.id_edit = QLineEdit()
+        self.name_edit = QLineEdit()
+        self.given_name_edit = QLineEdit()
+        self.role_edit = QLineEdit()
+        self.position_edit = QLineEdit()
+        self.orientation_edit = QLineEdit()
+        
+        form_layout.addRow("ID:", self.id_edit)
+        form_layout.addRow("Класснейм объекта:", self.name_edit)
+        form_layout.addRow("Отображаемое имя:", self.given_name_edit)
+        form_layout.addRow("Роль:", self.role_edit)
+        form_layout.addRow("Позиция (X Y Z):", self.position_edit)
+        form_layout.addRow("Ориентация (X Y Z):", self.orientation_edit)
+        
+        layout.addLayout(form_layout)
+        
+        # Кнопки
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Сохранить")
+        cancel_button = QPushButton("Отмена")
+        
+        save_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+    def load_trader_data(self):
+        """Загрузка данных торговца в форму"""
+        self.id_edit.setText(str(self.trader_data.get('Id', '')))
+        self.name_edit.setText(self.trader_data.get('Name', ''))
+        self.given_name_edit.setText(self.trader_data.get('GivenName', ''))
+        self.role_edit.setText(self.trader_data.get('Role', ''))
+        
+        # Позиция
+        position = self.trader_data.get('Position', [0, 0, 0])
+        if len(position) >= 3:
+            position_str = f"{position[0]} {position[1]} {position[2]}"
+            self.position_edit.setText(position_str)
+        
+        # Ориентация
+        orientation = self.trader_data.get('Orientation', [0, 0, 0])
+        if len(orientation) >= 3:
+            orientation_str = f"{orientation[0]} {orientation[1]} {orientation[2]}"
+            self.orientation_edit.setText(orientation_str)
+            
+    def get_trader_data(self):
+        """Получение данных торговца из формы"""
+        updated_trader = self.trader_data.copy()
+        
         try:
-            # Собираем новые данные
-            classname = self.classname_var.get().strip()
-            coefficient = self.coefficient_var.get().strip()
-            maxstock = self.maxstock_var.get().strip()
-            trade_quantity = self.trade_quantity_var.get().strip()
-            buy_price = self.buy_price_var.get().strip()
-            sell_price = self.sell_price_var.get().strip()
+            updated_trader['Id'] = int(self.id_edit.text())
+        except ValueError:
+            updated_trader['Id'] = 0
             
-            # Проверяем, что все поля заполнены
-            if not all([classname, coefficient, maxstock, trade_quantity, buy_price, sell_price]):
-                messagebox.showwarning("Предупреждение", "Все поля должны быть заполнены")
-                return
+        updated_trader['Name'] = self.name_edit.text()
+        updated_trader['GivenName'] = self.given_name_edit.text()
+        updated_trader['Role'] = self.role_edit.text()
+        
+        # Позиция
+        try:
+            position_parts = self.position_edit.text().split()
+            if len(position_parts) >= 3:
+                x = float(position_parts[0])
+                y = float(position_parts[1])
+                z = float(position_parts[2])
+                updated_trader['Position'] = [x, y, z]
+            else:
+                updated_trader['Position'] = [0, 0, 0]
+        except ValueError:
+            updated_trader['Position'] = [0, 0, 0]
+        
+        # Ориентация
+        try:
+            orientation_parts = self.orientation_edit.text().split()
+            if len(orientation_parts) >= 3:
+                x = float(orientation_parts[0])
+                y = float(orientation_parts[1])
+                z = float(orientation_parts[2])
+                updated_trader['Orientation'] = [x, y, z]
+            else:
+                updated_trader['Orientation'] = [0, 0, 0]
+        except ValueError:
+            updated_trader['Orientation'] = [0, 0, 0]
             
-            # Формируем новую строку товара
-            new_product_str = f"{classname},{coefficient},{maxstock},{trade_quantity},{buy_price},{sell_price}"
+        return updated_trader
+
+
+class TraderIDEditDialog(QDialog):
+    def __init__(self, parent, trader_id_data):
+        super().__init__(parent)
+        self.trader_id_data = trader_id_data.copy()
+        self.setWindowTitle("Редактирование ID торговца")
+        self.setModal(True)
+        self.resize(600, 500)
+        self.setup_ui()
+        self.load_trader_id_data()
+        
+    def setup_ui(self):
+        """Настройка интерфейса"""
+        layout = QVBoxLayout(self)
+        
+        # Форма
+        form_layout = QFormLayout()
+        
+        # Поля ID торговца
+        self.id_edit = QLineEdit()
+        self.categories_edit = QTextEdit()
+        self.categories_edit.setMaximumHeight(200)
+        
+        form_layout.addRow("ID:", self.id_edit)
+        form_layout.addRow("Категории (по одной на строку):", self.categories_edit)
+        
+        layout.addLayout(form_layout)
+        
+        # Кнопки
+        button_layout = QHBoxLayout()
+        save_button = QPushButton("Сохранить")
+        cancel_button = QPushButton("Отмена")
+        
+        save_button.clicked.connect(self.accept)
+        cancel_button.clicked.connect(self.reject)
+        
+        button_layout.addWidget(save_button)
+        button_layout.addWidget(cancel_button)
+        layout.addLayout(button_layout)
+        
+    def load_trader_id_data(self):
+        """Загрузка данных ID торговца в форму"""
+        self.id_edit.setText(str(self.trader_id_data.get('Id', '')))
+        
+        # Категории
+        categories = self.trader_id_data.get('Categories', [])
+        categories_text = '\n'.join(categories)
+        self.categories_edit.setPlainText(categories_text)
+        
+    def get_trader_id_data(self):
+        """Получение данных ID торговца из формы"""
+        updated_trader_id = self.trader_id_data.copy()
+        
+        try:
+            updated_trader_id['Id'] = int(self.id_edit.text())
+        except ValueError:
+            updated_trader_id['Id'] = 0
             
-            # Обновляем данные
-            category = self.config_data['TraderCategories'][self.category_index]
-            category['Products'][self.product_index] = new_product_str
-            
-            self.status_var.set("Изменения применены")
-            
-            # Вызываем callback для обновления основного окна
-            if self.callback:
-                self.callback()
-            
-            # Автосохранение
-            self.auto_save()
-            
-            # Закрываем окно
-            self.window.destroy()
-            
-        except Exception as e:
-            messagebox.showerror("Ошибка", f"Не удалось применить изменения: {str(e)}")
-    
-    def auto_save(self):
-        """Автоматическое сохранение файла"""
-        # Находим главное окно и вызываем автосохранение
-        main_window = self.parent
-        while hasattr(main_window, 'parent') and main_window.parent:
-            main_window = main_window.parent
-        if hasattr(main_window, 'auto_save'):
-            main_window.auto_save()
-    
-    def cancel_changes(self):
-        """Отменяем изменения и закрываем окно"""
-        self.window.destroy()
-    
-    def on_closing(self):
-        """Обработчик закрытия окна"""
-        self.window.destroy()
+        # Категории
+        categories_text = self.categories_edit.toPlainText()
+        categories = [cat.strip() for cat in categories_text.split('\n') if cat.strip()]
+        updated_trader_id['Categories'] = categories
+        
+        return updated_trader_id
+
 
 def main():
-    root = tkdnd.TkinterDnD.Tk()
-    app = TraderPlusEditor(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    
+    # Настройка стиля приложения
+    app.setStyle('Fusion')
+    
+    # Увеличиваем базовый шрифт приложения
+    font = QFont()
+    font.setPointSize(11)  # Базовый размер шрифта
+    app.setFont(font)
+    
+    # Создание и отображение главного окна
+    window = TraderPlusEditor()
+    window.show()
+    
+    sys.exit(app.exec_())
+
 
 if __name__ == "__main__":
-    main() 
+    main()
